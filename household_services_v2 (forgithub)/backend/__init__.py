@@ -1,5 +1,6 @@
 import os
 from flask import Flask, jsonify, current_app, send_from_directory 
+from werkzeug.exceptions import HTTPException
 from .config import Config
 from .extensions import db, migrate, login_manager, cache, make_celery, celery_app
 from .models import User
