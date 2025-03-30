@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Household Services</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <style>
+      body { padding-top: 4.5rem; background-color: #f8f9fa; }
+      [v-cloak] { display: none; } 
+      .nav-link { cursor: pointer; }
+      .table-sm th, .table-sm td { padding: 0.4rem; font-size: 0.9em; vertical-align: middle; }
+      .badge { font-size: 0.8em; vertical-align: text-bottom; }
+      .btn-sm.py-0 { line-height: 1.2; font-size: 0.8em; padding-top: 0.15rem; padding-bottom: 0.15rem;}
+      .loading-spinner { display: inline-block; width: 1em; height: 1em; vertical-align: text-bottom;}
+      .error-message { color: red; font-size: 0.875em; margin-top: 0.25rem; }
+      .action-btn { min-width: 65px; text-align: center; }
+      .card { margin-bottom: 1.5rem; }
+      .card-header { background-color: #e9ecef; font-weight: 500;}
+      .modal-header, .modal-footer { background-color: #f1f1f1; }
+      label abbr[title="required"] { color: red; text-decoration: none; margin-left: 2px;}
+      .small-text { font-size: 0.85em; }
+    </style>
+</head>
+<body>
+
+    <div id="app" v-cloak>
+        
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top shadow-sm"> 
+            <div class="container-fluid">
+                <router-link class="navbar-brand" to="/">HouseholdSvcs</router-link>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav ms-auto align-items-center">
+                        <li class="nav-item" v-if="isLoggedIn"><span class="navbar-text me-3">Hi, {{ user?.name || user?.username }}</span></li>
+                        <template v-if="isLoggedIn">
+                            <li class="nav-item" v-if="isAdmin"><router-link class="nav-link" :class="{ active: $route.name === 'AdminDashboard' }" :to="{ name: 'AdminDashboard' }">Admin</router-link></li>
+                            <li class="nav-item" v-if="isCustomer"><router-link class="nav-link" :class="{ active: $route.name === 'CustomerDashboard' }" :to="{ name: 'CustomerDashboard' }">Customer</router-link></li>
+                            <li class="nav-item" v-if="isProfessionalApproved"><router-link class="nav-link" :class="{ active: $route.name === 'ProfessionalDashboard' }" :to="{ name: 'ProfessionalDashboard' }">Professional</router-link></li>
+                            <li class="nav-item"><button class="btn btn-outline-light btn-sm" @click="handleLogout" :disabled="authLoading">Logout</button></li>
+                        </template>
+                        <template v-else>
+                            <li class="nav-item"><router-link class="nav-link" :class="{ active: $route.name === 'Login' }" :to="{ name: 'Login' }">Login</router-link></li>
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Register</a>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><router-link class="dropdown-item" :to="{ name: 'RegisterCustomer' }">As Customer</router-link></li>
+                                    <li><router-link class="dropdown-item" :to="{ name: 'RegisterProfessional' }">As Professional</router-link></li>
+                                </ul>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        
+        <main class="container my-4">
+             <div v-if="globalError" class="alert alert-danger alert-dismissible fade show">
+                {{ globalError }} <button type="button" class="btn-close" @click="clearGlobalError" aria-label="Close"></button>
+             </div>
+             <router-view :key="$route.fullPath">
+                
+            </router-view>
+        </main>
+
+    </div> 
+
+    
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.29/dist/vue.global.prod.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/vue-router@4.3.3/dist/vue-router.global.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+    
+    <script type="module">
+        const { createApp, ref, reactive, computed, onMounted, defineComponent, watch } = Vue;
+        const { createRouter, createWebHistory, useRoute } = VueRouter;
+
+       
+        const api = {
+            async request(method, url, data = null) {
+                const options = { method, headers: { 'Accept': 'application/json' }, credentials: 'include' };
+                if (data !== null && data !== undefined) { 
+                    options.headers['Content-Type'] = 'application/json';
+                    options.body = JSON.stringify(data);
+                }
+                try {
+                    const response = await fetch(`/api${url}`, options); 
+                    if (!response.ok) {
+                        let errorData = { error: `HTTP error! Status: ${response.status}`, description: response.statusText };
+                        try { errorData = await response.json(); } catch (e) { /* ignore if body not json */ }
+                        const error = new Error(errorData.error || errorData.description || `HTTP ${response.status}`);
+                        error.response = { status: response.status, data: errorData }; 
+                        throw error;
+                    }
+                    if (response.status === 204 || response.headers.get("content-length") === "0") return { data: null };
+                    return { data: await response.json() };
+                } catch (error) { console.error(`API ${method} ${url} Failed:`, error); throw error; } 
+            },
+           
+            login: (cred) => api.request('POST', '/auth/login', cred), logout: () => api.request('POST', '/auth/logout'),
+            registerCustomer: (d) => api.request('POST', '/auth/register/customer', d), registerProfessional: (d) => api.request('POST', '/auth/register/professional', d),
+            checkAuth: () => api.request('GET', '/check_auth'), getServiceTypesForRegistration: () => api.request('GET', '/auth/services'),
+            // Admin Users
+            getUsers: (p) => api.request('GET', `/admin/users?${new URLSearchParams(p)}`), approveProfessional: (id) => api.request('POST', `/admin/users/${id}/approve`),
+            blockUser: (id) => api.request('POST', `/admin/users/${id}/block`), unblockUser: (id) => api.request('POST', `/admin/users/${id}/unblock`),
+            // Admin Services
+            getAdminServices: () => api.request('GET', '/customer/services'), createService: (d) => api.request('POST', '/admin/services', d),
+            updateService: (id, d) => api.request('PUT', `/admin/services/${id}`, d), deleteService: (id) => api.request('DELETE', `/admin/services/${id}`),
+            // Admin Requests / Exports
+            getAdminRequests: () => api.request('GET', '/admin/requests'), triggerExport: () => api.request('POST', '/admin/export/service-requests'),
+            // Customer
+            getCustomerServices: (p) => api.request('GET', `/customer/services?${new URLSearchParams(p)}`), createRequest: (d) => api.request('POST', '/customer/requests', d),
+            getMyRequests: () => api.request('GET', '/customer/requests'), editRequest: (id, d) => api.request('PUT', `/customer/requests/${id}`, d),
+            closeRequest: (id, d) => api.request('POST', `/customer/requests/${id}/close`, d),
+            // Professional
+            getProfessionalTasks: () => api.request('GET', '/professional/requests'),
+            acceptRequest: (id) => api.request('POST', `/professional/requests/${id}/accept`), rejectRequest: (id) => api.request('POST', `/professional/requests/${id}/reject`),
+            completeRequest: (id) => api.request('POST', `/professional/requests/${id}/complete`),
+        };
+
+        
+        const rootState = reactive({ user: null, isLoggedIn: false, authLoading: false, authError: null, globalError: null });
+        const rootActions = {
+            async login(credentials) {
+                rootState.authLoading = true; rootState.authError = null;
+                try { const { data } = await api.login(credentials); rootState.user = data.user; rootState.isLoggedIn = true; this.redirectToDashboard(); }
+                catch (error) { rootState.authError = error.response?.data?.error || error.message || 'Login failed.'; rootState.user = null; rootState.isLoggedIn = false; }
+                finally { rootState.authLoading = false; }
+            },
+            async register(userData, role) {
+                rootState.authLoading = true; rootState.authError = null;
+                try { const apiCall = role === 'customer' ? api.registerCustomer : api.registerProfessional; await apiCall(userData); router.push({ name: 'Login', query: { registered: 'true' } }); }
+                catch (error) { rootState.authError = error.response?.data?.error || error.message || 'Registration failed.'; throw error; } 
+                finally { rootState.authLoading = false; }
+            },
+            async logout() {
+                rootState.authLoading = true; rootState.authError = null;
+                try { await api.logout(); } catch (error) { console.warn("Logout API failed.", error); }
+                finally { rootState.user = null; rootState.isLoggedIn = false; rootState.authLoading = false; router.push({ name: 'Login' }); }
+            },
+            async checkAuthStatus() {
+                
+                const currentLocalUser = rootState.user;
+                try {
+                    const { data } = await api.checkAuth();
+                    rootState.user = data.user; 
+                    rootState.isLoggedIn = data.logged_in;
+                    
+                    if (!rootState.isLoggedIn && currentLocalUser) {
+                        console.log("Session expired or invalid, redirecting to login.");
+                        router.push({ name: 'Login'});
+                    }
+                    rootState.authError = null;
+                } catch (error) {
+                    console.error("Auth check failed:", error);
+                    
+                    if (rootState.isLoggedIn) { 
+                        rootState.user = null;
+                        rootState.isLoggedIn = false;
+                        router.push({ name: 'Login' });
+                    }
+                }
+            },
+            redirectToDashboard() {
+                 if (rootState.user?.role === 'admin') router.push({ name: 'AdminDashboard' });
+                 else if (rootState.user?.role === 'professional' && rootState.user?.is_approved) router.push({ name: 'ProfessionalDashboard' });
+                 else if (rootState.user?.role === 'customer') router.push({ name: 'CustomerDashboard' });
+                 else router.push({ name: 'Login' }); 
+            },
+            clearAuthError() { rootState.authError = null; },
+            setGlobalError(msg) { rootState.globalError = msg; },
+            clearGlobalError() { rootState.globalError = null; },
+            handleLogout() { rootActions.logout(); } 
+        };
+
+
+        // components
+
+        const LoginComponent = defineComponent({
+            template: `
+                <div class="row justify-content-center align-items-center" style="min-height: 70vh;"> <div class="col-md-6 col-lg-4"> <div class="card shadow-sm border-0"> <div class="card-body p-4">
+                    <h2 class="card-title text-center mb-4">Login</h2>
+                    <div v-if="registeredSuccess" class="alert alert-success">Registered! Please log in.</div>
+                    <!-- Access global state -->
+                    <div v-if="rootState.authError" class="alert alert-danger">{{ rootState.authError }}</div>
+                    <form @submit.prevent="submitLogin" novalidate>
+                        <div class="mb-3"><label for="login-username">Username:</label><input id="login-username" type="text" class="form-control" v-model.trim="username" required></div>
+                        <div class="mb-3"><label for="login-password">Password:</label><input id="login-password" type="password" class="form-control" v-model="password" required></div>
+                        <button type="submit" class="btn btn-primary w-100" :disabled="rootState.authLoading">
+                             <span v-if="rootState.authLoading" class="spinner-border spinner-border-sm me-1"></span> Login
+                         </button>
+                    </form>
+                    <div class="mt-4 text-center"><p class="mb-1 small">Need account?</p>
+                        <router-link :to="{ name: 'RegisterCustomer' }" class="btn btn-sm btn-link px-1">Customer</router-link> |
+                        <router-link :to="{ name: 'RegisterProfessional' }" class="btn btn-sm btn-link px-1">Professional</router-link>
+                    </div>
+                </div></div></div></div>`,
+            setup() {
+                const username = ref(''); const password = ref(''); const route = useRoute(); const registeredSuccess = ref(false);
+                onMounted(() => { rootActions.clearAuthError(); if (route.query.registered) registeredSuccess.value = true; });
+                const submitLogin = () => { rootActions.login({ username: username.value, password: password.value }); };
+                return { username, password, registeredSuccess, submitLogin, rootState };
+            }
+        });
+
+        const RegisterCustomerComponent = defineComponent({
+             template: `
+                 <div class="row justify-content-center"><div class="col-md-8 col-lg-6">
+                     <h2>Register Customer</h2><hr>
+                     <div v-if="rootState.authError" class="alert alert-danger alert-dismissible"> {{ rootState.authError }} <button @click="clearError" class="btn-close"></button></div>
+                     <form @submit.prevent="submitRegister" novalidate>
+                         <div class="mb-3"><label>Name <abbr title="required">*</abbr></label><input type="text" v-model.trim="f.name" required class="form-control"></div>
+                         <div class="mb-3"><label>Username <abbr title="required">*</abbr></label><input type="text" v-model.trim="f.username" required class="form-control"></div>
+                         <div class="mb-3"><label>Email <abbr title="required">*</abbr></label><input type="email" v-model.trim="f.email" required class="form-control"></div>
+                         <div class="mb-3"><label>Password <abbr title="required">*</abbr></label><input type="password" v-model="f.password" required class="form-control"></div>
+                         <div class="mb-3"><label>Pincode <abbr title="required">*</abbr></label><input type="text" v-model.trim="f.pincode" required maxlength="6" pattern="\\d{6}" class="form-control"></div>
+                         <button type="submit" :disabled="rootState.authLoading" class="btn btn-primary">
+                            <span v-if="rootState.authLoading" class="spinner-border spinner-border-sm me-1"></span> Register
+                         </button>
+                         <router-link :to="{ name: 'Login' }" class="btn btn-link ms-2">Cancel</router-link>
+                     </form>
+                 </div></div>`,
+             setup() {
+                 const f = reactive({ name: '', username: '', email: '', password: '', pincode: '' });
+                 onMounted(() => rootActions.clearAuthError());
+                 const submitRegister = async () => {
+                     if (Object.values(f).some(v=>!v) || !/^\d{6}$/.test(f.pincode)) { rootState.authError = "Fill all * fields correctly (6-digit pincode)."; return; }
+                     try { await rootActions.register(f, 'customer'); } catch (e) { /* error set in action */ }
+                 };
+                 const clearError = () => rootActions.clearAuthError();
+                 return { f, submitRegister, clearError, rootState };
+             }
+        });
+
+        const RegisterProfessionalComponent = defineComponent({
+             template: `
+                 <div class="row justify-content-center"><div class="col-md-8 col-lg-7">
+                     <h2>Register Professional</h2><hr>
+                     <div v-if="rootState.authError" class="alert alert-danger alert-dismissible"> {{ rootState.authError }} <button @click="clearError" class="btn-close"></button></div>
+                     <div v-if="servicesError" class="alert alert-warning">Services Error: {{ servicesError }}</div>
+                     <form @submit.prevent="submitRegister" novalidate>
+                         <div class="row"><div class="col-md-6 mb-3"><label>Name <abbr title="required">*</abbr></label><input type="text" v-model.trim="f.name" required class="form-control"></div><div class="col-md-6 mb-3"><label>Username <abbr title="required">*</abbr></label><input type="text" v-model.trim="f.username" required class="form-control"></div></div>
+                         <div class="row"><div class="col-md-6 mb-3"><label>Email <abbr title="required">*</abbr></label><input type="email" v-model.trim="f.email" required class="form-control"></div><div class="col-md-6 mb-3"><label>Password <abbr title="required">*</abbr></label><input type="password" v-model="f.password" required class="form-control"></div></div>
+                         <div class="row"><div class="col-md-6 mb-3"><label>Service <abbr title="required">*</abbr></label><select v-model="f.service_type_id" required :disabled="servicesLoading" class="form-select"><option disabled value="">{{ servicesLoading ? 'Loading...' : 'Select' }}</option><option v-for="s in services" :key="s.id" :value="s.id">{{ s.name }}</option></select></div><div class="col-md-6 mb-3"><label>Pincode <abbr title="required">*</abbr></label><input type="text" v-model.trim="f.pincode" required maxlength="6" pattern="\\d{6}" class="form-control"></div></div>
+                         <div class="row"><div class="col-md-6 mb-3"><label>Experience (Yrs)</label><input type="number" v-model.number="f.experience" min="0" class="form-control"></div></div>
+                         <div class="mb-3"><label>Description</label><textarea v-model.trim="f.description" rows="2" class="form-control"></textarea></div>
+                         <div class="alert alert-info small">Requires admin approval.</div>
+                         <button type="submit" :disabled="rootState.authLoading || servicesLoading" class="btn btn-primary">
+                            <span v-if="rootState.authLoading" class="spinner-border spinner-border-sm me-1"></span> Register
+                         </button>
+                         <router-link :to="{ name: 'Login' }" class="btn btn-link ms-2">Cancel</router-link>
+                     </form>
+                 </div></div>`,
+              setup() {
+                 const f = reactive({ name: '', username: '', email: '', password: '', service_type_id: '', experience: null, description: '', pincode: '' });
+                 const services = ref([]); const servicesLoading = ref(false); const servicesError = ref(null);
+                 const fetchServices = async () => {
+                     servicesLoading.value = true; servicesError.value = null;
+                     try { const { data } = await api.getServiceTypesForRegistration(); services.value = data; }
+                     catch (e) { servicesError.value = e.response?.data?.error || e.message; }
+                     finally { servicesLoading.value = false; }
+                 };
+                 onMounted(() => { fetchServices(); rootActions.clearAuthError(); });
+                 const submitRegister = async () => {
+                     if (!f.name||!f.username||!f.email||!f.password||!f.service_type_id||!f.pincode||!/^\d{6}$/.test(f.pincode)) { rootState.authError = "Fill required * fields correctly."; return; }
+                     try { await rootActions.register(f, 'professional'); } catch (e) { /* error handled in action */ }
+                 };
+                 const clearError = () => rootActions.clearAuthError();
+                 return { f, services, servicesLoading, servicesError, submitRegister, clearError, rootState };
+             }
+        });
+
+        const AdminDashboardComponent = defineComponent({
+            template: `
+                 <div> <h2 class="mb-4">Admin Dashboard</h2> <div v-if="localError" class="alert alert-danger">{{ localError }}</div> <div v-if="loading" class="text-center p-4"><div class="spinner-border"></div></div>
+                     <!-- Users Card -->
+                     <div class="card"><h5 class="card-header">Users</h5><div class="card-body">
+                         <!-- Filters -->
+                         <div class="row g-2 mb-3">
+                             <div class="col-md-4"><select class="form-select form-select-sm" v-model="userFilters.role" @change="fetchUsers"><option value="">All Roles</option><option value="customer">Customers</option><option value="professional">Professionals</option></select></div>
+                             <div class="col-md-5"><input type="search" class="form-control form-control-sm" placeholder="Search..." v-model.lazy="userFilters.search" @input="fetchUsers"></div>
+                              <div class="col-md-3 text-end"><button @click="fetchUsers" class="btn btn-sm btn-secondary" :disabled="actionLoading['users']"><span v-if="actionLoading['users']" class="spinner-border spinner-border-sm"></span> Refresh</button></div>
+                         </div>
+                         <div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>User</th><th>Role</th><th>Status</th><th>Approval</th><th>Actions</th></tr></thead><tbody>
+                         <tr v-if="!actionLoading['users'] && users.length===0"><td colspan="6" class="text-center">No users found.</td></tr>
+                         <tr v-for="u in users" :key="u.id"><td>{{u.id}}</td><td>{{u.username}}</td><td>{{u.role}}</td>
+                         <td><span :class="badgeClass(u.is_active,'success','secondary')">{{u.is_active ? 'Active':'Blocked'}}</span></td>
+                         <td><span v-if="u.role==='professional'" :class="badgeClass(u.is_approved,'info','warning')">{{u.is_approved ? 'Approved':'Pending'}}</span><span v-else>-</span></td>
+                         <td>
+                             <button v-if="u.role==='professional' && !u.is_approved" @click="approveUser(u.id)" :disabled="actionLoading['ua_'+u.id]" class="btn btn-sm btn-success py-0 px-1 me-1 action-btn">
+                                 <span v-if="actionLoading['ua_'+u.id]" class="spinner-border spinner-border-sm"></span> Approve
+                             </button>
+                             <button v-if="u.is_active" @click="blockUser(u.id)" :disabled="actionLoading['ub_'+u.id]" class="btn btn-sm btn-danger py-0 px-1 me-1 action-btn">
+                                  <span v-if="actionLoading['ub_'+u.id]" class="spinner-border spinner-border-sm"></span> Block
+                             </button>
+                             <button v-else @click="unblockUser(u.id)" :disabled="actionLoading['uu_'+u.id]" class="btn btn-sm btn-secondary py-0 px-1 me-1 action-btn">
+                                  <span v-if="actionLoading['uu_'+u.id]" class="spinner-border spinner-border-sm"></span> Unblock
+                             </button>
+                         </td></tr></tbody></table></div></div></div>
+                     <!-- Services Card -->
+                     <div class="card"><h5 class="card-header">Services</h5><div class="card-body"><button class="btn btn-sm btn-primary mb-2" @click="openServiceModal()">+ Add</button>
+                     <div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Time</th><th>Actions</th></tr></thead><tbody>
+                     <tr v-if="!actionLoading['svcs'] && services.length===0"><td colspan="5" class="text-center">No services.</td></tr><tr v-for="s in services" :key="s.id"><td>{{s.id}}</td><td>{{s.name}}</td><td>{{s.base_price}}</td><td>{{ s.time_required || 'N/A' }}</td>
+                     <td><button class="btn btn-sm btn-warning py-0 px-1 me-1 action-btn" @click="openServiceModal(s)">Edit</button><button class="btn btn-sm btn-danger py-0 px-1 action-btn" @click="deleteService(s.id)" :disabled="actionLoading['sd_'+s.id]">
+                        <span v-if="actionLoading['sd_'+s.id]" class="spinner-border spinner-border-sm"></span> Delete
+                     </button></td></tr></tbody></table></div></div></div>
+                     <!-- Export Card -->
+                     <div class="card"><h5 class="card-header">Export</h5><div class="card-body"><div v-if="exportMessage" class="alert alert-info small p-2">{{ exportMessage }}</div><button class="btn btn-secondary" @click="triggerExportCsv" :disabled="actionLoading['export']">
+                        <span v-if="actionLoading['export']" class="spinner-border spinner-border-sm"></span> Export CSV
+                     </button></div></div>
+                     <!-- Service Modal -->
+                     <div class="modal fade" id="adminSvcModal" ref="svcModalRef"><div class="modal-dialog"><div class="modal-content"><form @submit.prevent="saveService">
+                     <div class="modal-header"><h5 class="modal-title">{{ currentSvc.id ? 'Edit':'Add'}} Service</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+                     <div class="modal-body"><div v-if="svcFormError" class="error-message mb-2">{{ svcFormError }}</div><div class="mb-2"><label>Name*</label><input type="text" v-model.trim="currentSvc.name" class="form-control form-control-sm" required></div><div class="mb-2"><label>Price*</label><input type="number" v-model.number="currentSvc.base_price" class="form-control form-control-sm" required min="0" step="0.01"></div><div class="mb-2"><label>Time Req.</label><input type="text" v-model.trim="currentSvc.time_required" class="form-control form-control-sm"></div><div class="mb-2"><label>Desc.</label><textarea v-model.trim="currentSvc.description" class="form-control form-control-sm" rows="2"></textarea></div></div>
+                     <div class="modal-footer"><button type="button" data-bs-dismiss="modal" class="btn btn-sm btn-secondary">Cancel</button><button type="submit" :disabled="actionLoading['svc_save']" class="btn btn-sm btn-primary">
+                         <span v-if="actionLoading['svc_save']" class="spinner-border spinner-border-sm"></span> Save
+                     </button></div>
+                     </form></div></div></div>
+                 </div>`,
+             setup(props, { emit }) {
+                 const loading = ref(false); const localError = ref(null); const actionLoading = reactive({});
+                 const users = ref([]); const services = ref([]); const exportMessage = ref('');
+                 const userFilters = reactive({ role: '', search: '' });
+                 const svcModalRef = ref(null); let svcModal = null;
+                 const currentSvc = reactive({ id: null, name: '', base_price: 0, description: '', time_required: '' }); const svcFormError = ref(null);
+
+                 const setLoading = (k,v) => actionLoading[k] = v; const clearError = () => { localError.value = null; emit('clear-error'); };
+                 const badgeClass = (c,t,f) => `badge bg-${c?t:f}`;
+
+                 const fetchData = async () => { loading.value = true; clearError(); try { await Promise.all([fetchUsers(), fetchServices()]); } catch (e) { console.error("Admin fetch error", e)} finally { loading.value = false; }};
+                 const fetchUsers = async () => { setLoading('users', true); users.value=[]; try{ const { data } = await api.getUsers(userFilters); users.value = data; } catch(e){ localError.value = `Users Err: ${e.response?.data?.error||e.message}`; } finally { setLoading('users', false); } };
+                 const fetchServices = async () => { setLoading('svcs', true); services.value=[]; try{ const { data } = await api.getAdminServices(); services.value = data; } catch(e){ localError.value = `Services Err: ${e.response?.data?.error||e.message}`; } finally { setLoading('svcs', false); } };
+                 const approveUser = async (id) => { setLoading(`ua_${id}`, true); clearError(); try { await api.approveProfessional(id); await fetchUsers(); } catch (e) { localError.value = `Approve Fail: ${e.response?.data?.error||e.message}`; } finally { setLoading(`ua_${id}`, false); }};
+                 const blockUser = async (id) => { setLoading(`ub_${id}`, true); clearError(); try { await api.blockUser(id); await fetchUsers(); } catch (e) { localError.value = `Block Fail: ${e.response?.data?.error||e.message}`; } finally { setLoading(`ub_${id}`, false); }};
+                 const unblockUser = async (id) => { setLoading(`uu_${id}`, true); clearError(); try { await api.unblockUser(id); await fetchUsers(); } catch (e) { localError.value = `Unblock Fail: ${e.response?.data?.error||e.message}`; } finally { setLoading(`uu_${id}`, false); }};
+                 const openServiceModal = (svc=null) => { svcFormError.value=null; if(svc) Object.assign(currentSvc, svc); else Object.assign(currentSvc, { id: null, name: '', base_price: 0, description: '', time_required: '' }); svcModal?.show(); };
+                 const saveService = async () => { setLoading('svc_save', true); svcFormError.value=null; clearError(); if(!currentSvc.name || currentSvc.base_price === null || currentSvc.base_price < 0){ svcFormError.value = "Name/Price invalid"; setLoading('svc_save', false); return; } try { const call = currentSvc.id ? api.updateService(currentSvc.id, currentSvc) : api.createService(currentSvc); await call; await fetchServices(); svcModal?.hide(); } catch(e){ svcFormError.value = e.response?.data?.error || e.message; } finally { setLoading('svc_save', false); } };
+                 const deleteService = async (id) => { if(!confirm('Delete?')) return; setLoading(`sd_${id}`, true); clearError(); try { await api.deleteService(id); await fetchServices(); } catch(e){ localError.value = `Delete Fail: ${e.response?.data?.error||e.message}`; } finally { setLoading(`sd_${id}`, false); } };
+                 const triggerExportCsv = async () => { setLoading('export', true); exportMessage.value = ''; clearError(); try { const { data } = await api.triggerExport(); exportMessage.value = data.message; } catch (e) { localError.value = `Export Fail: ${e.response?.data?.error||e.message}`; } finally { setLoading('export', false); } };
+
+                 onMounted(()=>{ fetchData(); svcModal = new bootstrap.Modal(svcModalRef.value); });
+                 return{ loading, localError, actionLoading, users, services, exportMessage, userFilters, svcModalRef, currentSvc, svcFormError, fetchUsers, approveUser, blockUser, unblockUser, fetchServices, openServiceModal, saveService, deleteService, triggerExportCsv, badgeClass };
+             }
+        });
+
+        const CustomerDashboardComponent = defineComponent({
+             template: `
+                 <div> <h2 class="mb-4">Customer Dashboard</h2> <div v-if="localError" class="alert alert-danger">{{ localError }}</div> <div v-if="loading" class="text-center p-4"><div class="spinner-border"></div></div>
+                     <!-- My Requests Card -->
+                     <div class="card"><h5 class="card-header">My Requests</h5><div class="card-body"><button @click="fetchMyRequests" class="btn btn-sm btn-secondary mb-2" :disabled="actionLoading['req_load']">
+                         <span v-if="actionLoading['req_load']" class="spinner-border spinner-border-sm"></span> Refresh</button>
+                          <div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Service</th><th>Status</th><th>Needed By</th><th>Pro</th><th>Actions</th></tr></thead><tbody>
+                              <tr v-if="!actionLoading['req_load'] && myRequests.length===0"><td colspan="6" class="text-center">No requests found.</td></tr>
+                              <tr v-for="r in myRequests" :key="r.id"><td>{{r.id}}</td><td>{{r.service_name}}</td><td><span :class="badgeClass(r.status)">{{r.status}}</span></td><td>{{formatDT(r.requested_datetime)}}</td><td>{{r.professional_name}}</td>
+                                  <td><button v-if="r.status==='requested'" @click="openReqModal(r)" class="btn btn-sm btn-warning py-0 px-1 me-1 action-btn">Edit</button>
+                                      <button v-if="r.status==='completed'" @click="openCloseModal(r)" class="btn btn-sm btn-success py-0 px-1 action-btn">Close</button>
+                                      <span v-if="r.status==='closed'" class="text-muted small fst-italic">Closed</span></td></tr>
+                          </tbody></table></div></div></div>
+                     <!-- Find / Book Services Card -->
+                     <div class="card"><h5 class="card-header">Find & Book</h5><div class="card-body">
+                          <div class="row g-2 mb-2"><div class="col-md-5"><input type="search" v-model.lazy="svcFilters.name" @input="fetchServices" placeholder="Search name..." class="form-control form-control-sm"></div><div class="col-md-4"><input type="text" v-model.lazy="svcFilters.pincode" @input="fetchServices" placeholder="Pincode..." class="form-control form-control-sm" maxlength="6"></div></div>
+                           <div v-if="svcLoading" class="text-center"><div class="spinner-border spinner-border-sm"></div></div>
+                           <div v-else-if="services.length === 0" class="text-muted">No services found.</div>
+                           <div v-else class="list-group list-group-flush"><div v-for="s in services" :key="s.id" class="list-group-item d-flex justify-content-between align-items-center"><div>{{s.name}}<small class="text-muted ms-2">(₹{{s.base_price}})</small></div><button class="btn btn-sm btn-success py-0 px-1 action-btn" @click="openReqModal(null,s)">Book</button></div></div>
+                      </div></div>
+                     <!-- Request Modal -->
+                     <div class="modal fade" id="custReqModal" ref="reqModalRef"><div class="modal-dialog"><div class="modal-content"><form @submit.prevent="saveRequest">
+                         <div class="modal-header"><h5 class="modal-title">{{ currentReq.id ? 'Edit':'Book'}} Request: {{currentReq.service_name}}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+                         <div class="modal-body"><div v-if="reqFormError" class="error-message mb-2">{{ reqFormError }}</div><div class="mb-2"><label>Date/Time*</label><input type="datetime-local" v-model="currentReq.requested_datetime" class="form-control form-control-sm" required :min="minDTLocal"></div><div class="mb-2"><label>Pincode*</label><input type="text" v-model.trim="currentReq.location_pincode" class="form-control form-control-sm" required maxlength="6" pattern="\\d{6}"></div></div>
+                         <div class="modal-footer"><button type="button" data-bs-dismiss="modal" class="btn btn-sm btn-secondary">Cancel</button><button type="submit" :disabled="actionLoading['req_save']" class="btn btn-sm btn-primary">
+                              <span v-if="actionLoading['req_save']" class="spinner-border spinner-border-sm"></span> Submit</button></div>
+                     </form></div></div></div>
+                     <!-- Close Modal -->
+                     <div class="modal fade" id="custCloseModal" ref="closeModalRef"><div class="modal-dialog"><div class="modal-content"><form @submit.prevent="confirmClose">
+                         <div class="modal-header"><h5 class="modal-title">Close Request #{{ reqToClose?.id }}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+                         <div class="modal-body"><div v-if="closeFormError" class="error-message mb-2">{{ closeFormError }}</div><p>Confirm service '{{ reqToClose?.service_name }}' complete?</p><div class="mb-2"><label>Remarks</label><textarea v-model.trim="closeRemarks" class="form-control form-control-sm" rows="2"></textarea></div></div>
+                         <div class="modal-footer"><button type="button" data-bs-dismiss="modal" class="btn btn-sm btn-secondary">Cancel</button><button type="submit" :disabled="actionLoading['req_close']" class="btn btn-sm btn-success">
+                             <span v-if="actionLoading['req_close']" class="spinner-border spinner-border-sm"></span> Confirm</button></div>
+                     </form></div></div></div>
+                 </div>`,
+              setup(props, { emit }) {
+                  const loading=ref(false); const localError=ref(null); const actionLoading=reactive({}); const myRequests=ref([]); const services=ref([]); const svcLoading=ref(false); const svcFilters=reactive({name:'',pincode:''});
+                  const reqModalRef=ref(null); let reqModal=null; const closeModalRef=ref(null); let closeModal=null;
+                  const currentReq=reactive({id:null, service_id:null, service_name:'', requested_datetime:'', location_pincode:''}); const reqFormError=ref(null);
+                  const reqToClose=ref(null); const closeRemarks=ref(''); const closeFormError=ref(null);
+                  const minDTLocal=computed(()=>new Date(Date.now()-(new Date()).getTimezoneOffset()*60000).toISOString().slice(0,16));
+                  const setLoading=(k,v)=>actionLoading[k]=v; const clearError=()=>{localError.value=null; emit('clear-error');};
+                  const formatDT=(d)=>d?new Date(d).toLocaleString():'N/A'; const badgeClass=(s)=>`badge bg-${({requested:'secondary',assigned:'warning',accepted:'info',completed:'primary',closed:'success',rejected:'danger'})[s]||'dark'}`;
+                  const fetchMyRequests=async()=>{setLoading('req_load',true);clearError();myRequests.value=[]; try{const {data}=await api.getMyRequests();myRequests.value=data;}catch(e){localError.value=e.response?.data?.error||e.message||'Req Load Fail';}finally{setLoading('req_load',false);}};
+                  const fetchServices=async()=>{svcLoading.value=true;clearError();services.value=[]; try{const {data}=await api.getCustomerServices(svcFilters);services.value=data;}catch(e){localError.value=e.response?.data?.error||e.message||'Svc Load Fail';}finally{svcLoading.value=false;}};
+                  const openReqModal=(req=null, svc=null)=>{ reqFormError.value=null; if(req){const dt=req.requested_datetime?new Date(new Date(req.requested_datetime)-(new Date()).getTimezoneOffset()*60000).toISOString().slice(0,16):''; Object.assign(currentReq,{id:req.id,service_id:req.service_id,service_name:req.service_name,requested_datetime:dt,location_pincode:req.location_pincode}); } else if(svc){Object.assign(currentReq,{id:null,service_id:svc.id,service_name:svc.name,requested_datetime:'',location_pincode:svcFilters.pincode||''});} reqModal?.show(); };
+                  const saveRequest=async()=>{setLoading('req_save',true);reqFormError.value=null;clearError();if(!currentReq.requested_datetime||!currentReq.location_pincode||!/^\d{6}$/.test(currentReq.location_pincode)){reqFormError.value="Need valid date & 6-digit pincode.";setLoading('req_save',false);return;}try{const isoDT=new Date(currentReq.requested_datetime).toISOString();const payload={requested_datetime:isoDT,location_pincode:currentReq.location_pincode};const call=currentReq.id?api.editRequest(currentReq.id,payload):api.createRequest({...payload,service_id:currentReq.service_id});await call;await fetchMyRequests();reqModal?.hide();}catch(e){reqFormError.value=e.response?.data?.error||e.message||'Save Fail';}finally{setLoading('req_save',false);}};
+                  const openCloseModal=(req)=>{closeFormError.value=null;closeRemarks.value='';reqToClose.value=req;closeModal?.show();};
+                  const confirmClose=async()=>{setLoading('req_close',true);closeFormError.value=null;clearError();try{await api.closeRequest(reqToClose.value.id,{remarks:closeRemarks.value});await fetchMyRequests();closeModal?.hide();}catch(e){closeFormError.value=e.response?.data?.error||e.message||'Close Fail';}finally{setLoading('req_close',false);}};
+                  onMounted(()=>{fetchMyRequests();fetchServices();reqModal=new bootstrap.Modal(reqModalRef.value);closeModal=new bootstrap.Modal(closeModalRef.value);});
+                  return{loading, localError, actionLoading, myRequests, services, svcLoading, svcFilters, reqModalRef, closeModalRef, currentReq, reqFormError, reqToClose, closeRemarks, closeFormError, minDTLocal, fetchMyRequests, fetchServices, openReqModal, saveRequest, openCloseModal, confirmClose, formatDT, badgeClass};
+              }
+         });
+
+        const ProfessionalDashboardComponent = defineComponent({
+            template: `
+                 <div> <h2 class="mb-4">Professional Dashboard</h2> <div v-if="localError" class="alert alert-danger">{{ localError }}</div> <button @click="fetchTasks" class="btn btn-sm btn-secondary mb-2" :disabled="loading"> <span v-if="loading" class="spinner-border spinner-border-sm"></span> Refresh</button>
+                     <div v-if="loading && tasks.length===0" class="text-center p-4"><div class="spinner-border"></div></div> <div v-else-if="tasks.length===0" class="alert alert-info">No active tasks assigned.</div>
+                     <div v-else class="table-responsive"><table class="table table-sm">
+                     <thead><tr><th>ID</th><th>Service</th><th>Customer</th><th>Needed By</th><th>Pincode</th><th>Status</th><th>Actions</th></tr></thead>
+                     <tbody><tr v-for="t in tasks" :key="t.id"><td>{{t.id}}</td><td>{{t.service_name}}</td><td>{{t.customer_name}}</td><td>{{formatDT(t.requested_datetime)}}</td><td>{{t.location_pincode}}</td><td><span :class="badgeClass(t.status)">{{t.status}}</span></td>
+                     <td> <template v-if="t.status==='assigned'"><button @click="acceptTask(t.id)" :disabled="actionLoading['ta_'+t.id]" class="btn btn-sm btn-success py-0 px-1 me-1 action-btn"><span v-if="actionLoading['ta_'+t.id]" class="spinner-border spinner-border-sm"></span> Accept</button><button @click="rejectTask(t.id)" :disabled="actionLoading['tr_'+t.id]" class="btn btn-sm btn-danger py-0 px-1 action-btn"><span v-if="actionLoading['tr_'+t.id]" class="spinner-border spinner-border-sm"></span> Reject</button></template> <button v-else-if="t.status==='accepted'" @click="completeTask(t.id)" :disabled="actionLoading['tc_'+t.id]" class="btn btn-sm btn-primary py-0 px-1 action-btn"><span v-if="actionLoading['tc_'+t.id]" class="spinner-border spinner-border-sm"></span> Done</button> <span v-else-if="t.status==='completed'" class="text-muted small">Pending Close</span></td>
+                     </tr></tbody></table></div>
+                 </div>`,
+             setup(props, { emit }) {
+                 const loading=ref(false); const localError=ref(null); const actionLoading=reactive({}); const tasks=ref([]);
+                 const setLoading=(k,v)=>actionLoading[k]=v; const clearError=()=>{localError.value=null; emit('clear-error');};
+                 const formatDT=(d)=>d?new Date(d).toLocaleString():'N/A'; const badgeClass=(s)=>`badge bg-${({requested:'secondary',assigned:'warning',accepted:'info',completed:'primary',closed:'success',rejected:'danger'})[s]||'dark'}`;
+                 const fetchTasks=async()=>{loading.value=true;clearError();tasks.value=[];try{const {data}=await api.getProfessionalTasks();tasks.value=data;}catch(e){localError.value=e.response?.data?.error||e.message||'Task Load Fail';}finally{loading.value=false;}};
+                 const acceptTask=async(id)=>{setLoading(`ta_${id}`,true);clearError();try{await api.acceptRequest(id);await fetchTasks();}catch(e){localError.value=`Accept Fail: ${e.response?.data?.error||e.message}`;setLoading(`ta_${id}`,false);}};
+                 const rejectTask=async(id)=>{if(!confirm('Reject?'))return;setLoading(`tr_${id}`,true);clearError();try{await api.rejectRequest(id);await fetchTasks();}catch(e){localError.value=`Reject Fail: ${e.response?.data?.error||e.message}`;setLoading(`tr_${id}`,false);}};
+                 const completeTask=async(id)=>{if(!confirm('Mark Done?'))return;setLoading(`tc_${id}`,true);clearError();try{await api.completeRequest(id);await fetchTasks();}catch(e){localError.value=`Complete Fail: ${e.response?.data?.error||e.message}`;setLoading(`tc_${id}`,false);}};
+                 onMounted(fetchTasks);
+                 return{loading,localError,actionLoading,tasks,fetchTasks,acceptTask,rejectTask,completeTask,formatDT,badgeClass};
+             }
+        });
+
+        const NotFoundComponent = defineComponent({ template: `<div class="text-center mt-5"><h1>404</h1><p>Not Found</p><router-link to="/" class="btn btn-link">Home</router-link></div>` });
+
+        // Vue Router Setup 
+        const routes = [
+            { path: '/login', name: 'Login', component: LoginComponent, meta: { guestOnly: true } },
+            { path: '/register/customer', name: 'RegisterCustomer', component: RegisterCustomerComponent, meta: { guestOnly: true } },
+            { path: '/register/professional', name: 'RegisterProfessional', component: RegisterProfessionalComponent, meta: { guestOnly: true } },
+            { path: '/admin', name: 'AdminDashboard', component: AdminDashboardComponent, meta: { requiresAuth: true, roles: ['admin'] } },
+            { path: '/customer', name: 'CustomerDashboard', component: CustomerDashboardComponent, meta: { requiresAuth: true, roles: ['customer'] } },
+            { path: '/professional', name: 'ProfessionalDashboard', component: ProfessionalDashboardComponent, meta: { requiresAuth: true, roles: ['professional'], requiresApproval: true } },
+            { path: '/', redirect: () => (rootState.isLoggedIn ? '/determine-dashboard' : '/login') },
+            { path: '/determine-dashboard', redirect: () => { rootActions.redirectToDashboard(); return '/login'; } }, 
+            { path: '/:pathMatch(.*)*', name: 'NotFound', component: NotFoundComponent }
+        ];
+        const router = createRouter({ history: createWebHistory(), routes });
+
+        
+        router.beforeEach((to, from, next) => {
+            const { requiresAuth, roles, guestOnly, requiresApproval } = to.meta;
+            const { isLoggedIn, user } = rootState;
+            const userRole = user?.role; const isApproved = user?.is_approved;
+            
+            if (guestOnly && isLoggedIn && to.name !== 'Login') { rootActions.redirectToDashboard(); return; }
+            if (requiresAuth) {
+                if (!isLoggedIn) next({ name: 'Login', query: { redirect: to.fullPath } });
+                else if (roles && !roles.includes(userRole)) { rootActions.redirectToDashboard(); return; }
+                else if (requiresApproval && !isApproved) { rootActions.logout(); return; } 
+                else next();
+            } else next();
+        });
+
+        
+        const app = createApp({
+            setup() {
+                const computedState = { 
+                    isLoggedIn: computed(() => rootState.isLoggedIn), user: computed(() => rootState.user), userRole: computed(() => rootState.user?.role),
+                    isAdmin: computed(() => rootState.user?.role === 'admin'), isCustomer: computed(() => rootState.user?.role === 'customer'),
+                    isProfessionalApproved: computed(() => rootState.user?.role === 'professional' && rootState.user?.is_approved),
+                    authLoading: computed(() => rootState.authLoading),
+                };
+                 onMounted(() => { rootActions.checkAuthStatus(); }); 
+                 
+                 return { ...rootState, ...rootActions, ...computedState };
+            }
+        });
+
+        app.use(router); 
+        router.isReady().then(() => { app.mount('#app'); }); 
+
+    </script>
+
+</body>
+</html>

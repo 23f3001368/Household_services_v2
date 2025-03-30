@@ -1,0 +1,9 @@
+Household_services_v2 project.
+
+to run, first create virtual environment as per requirements.txt in backend folder
+run these commands in different terminals or run in background
+redis-server
+flask run
+celery -A celery_worker.celery_app worker --loglevel=info
+celery -A celery_worker.celery_app beat --loglevel=info
+app is served on 127.0.0.1:5000, open on browser.

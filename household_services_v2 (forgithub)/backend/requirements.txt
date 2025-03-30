@@ -1,0 +1,18 @@
+# File: backend/requirements.txt (Updated)
+
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-Login
+Flask-WTF
+Email-validator
+Werkzeug # Provides the hashing functions now
+SQLAlchemy
+# psycopg2-binary
+python-dotenv
+redis
+celery[redis]
+Flask-Caching
+requests
+# bcrypt # REMOVED
+gunicorn
