@@ -4,6 +4,7 @@ from flask_login import LoginManager
 from flask_caching import Cache
 from celery import Celery
 
+
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
@@ -14,6 +15,7 @@ cache = Cache()
 login_manager.login_view = 'auth.login'
 login_manager.login_message_category = 'info'
 login_manager.login_message = 'Please log in to access this page.'
+
 
 def make_celery(app):
     celery = Celery(
@@ -30,4 +32,6 @@ def make_celery(app):
 
     celery.Task = ContextTask
     return celery
+
+
 celery_app = None
